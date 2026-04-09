@@ -1,5 +1,5 @@
 # Qwen3-VL 8B SFT Fine-tuning Configuration
-# Based on Unsloth's Qwen3-VL notebook
+# Body defect detection using local dataset
 
 model:
   name: "unsloth/Qwen3-VL-8B-Instruct-unsloth-bnb-4bit"
@@ -19,9 +19,10 @@ lora:
   finetune_mlp_modules: true
 
 dataset:
-  name: "unsloth/LaTeX_OCR"
-  split: "train"
-  instruction: "Write the LaTeX representation for this image."
+  # Local JSON file in Unsloth conversation format (list of {"messages": [...]})
+  # Images referenced as file://images/... relative to dataset_root
+  path: "/paperclip/defect_training_dataset/share_binary_unsloth.json"
+  dataset_root: "/paperclip/defect_training_dataset"
 
 training:
   per_device_train_batch_size: 2

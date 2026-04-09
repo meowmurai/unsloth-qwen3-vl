@@ -10,12 +10,14 @@ Usage:
 """
 
 import argparse
+import json
+import os
 import yaml
 import torch
 from unsloth import FastVisionModel
 from unsloth.trainer import UnslothVisionDataCollator
-from datasets import load_dataset
 from trl import SFTTrainer, SFTConfig
+from PIL import Image
 
 
 def load_config(config_path: str) -> dict:
@@ -48,28 +50,46 @@ def build_model(cfg: dict):
     return model, tokenizer
 
 
+def resolve_image_path(image_ref: str, dataset_root: str) -> str:
+    """Resolve a file:// image reference to an absolute path."""
+    if image_ref.startswith("file://"):
+        image_ref = image_ref[len("file://"):]
+    return os.path.join(dataset_root, image_ref)
+
+
 def prepare_dataset(cfg: dict):
+    """Load a local JSON dataset in Unsloth conversation format.
+
+    Each entry has {"messages": [{"role": "user", "content": [...]}, ...]}.
+    Image references like file://images/foo.jpg are resolved relative to dataset_root
+    and loaded as PIL Images for Unsloth's data collator.
+    """
     ds_cfg = cfg["dataset"]
-    dataset = load_dataset(ds_cfg["name"], split=ds_cfg["split"])
-    instruction = ds_cfg["instruction"]
+    dataset_path = ds_cfg["path"]
+    dataset_root = ds_cfg["dataset_root"]
 
-    def convert_to_conversation(sample):
-        conversation = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": instruction},
-                    {"type": "image", "image": sample["image"]},
-                ],
-            },
-            {
-                "role": "assistant",
-                "content": [{"type": "text", "text": sample["text"]}],
-            },
-        ]
-        return {"messages": conversation}
+    with open(dataset_path) as f:
+        raw_data = json.load(f)
 
-    return [convert_to_conversation(sample) for sample in dataset]
+    dataset = []
+    for entry in raw_data:
+        messages = entry["messages"]
+        resolved_messages = []
+        for msg in messages:
+            new_msg = {"role": msg["role"], "content": []}
+            for item in msg["content"]:
+                if item["type"] == "image":
+                    abs_path = resolve_image_path(item["image"], dataset_root)
+                    new_msg["content"].append({
+                        "type": "image",
+                        "image": Image.open(abs_path).convert("RGB"),
+                    })
+                else:
+                    new_msg["content"].append(item)
+            resolved_messages.append(new_msg)
+        dataset.append({"messages": resolved_messages})
+
+    return dataset
 
 
 def train(model, tokenizer, dataset, cfg: dict):
@@ -128,11 +148,25 @@ def save_model(model, tokenizer, cfg: dict):
 
 
 def run_inference(model, tokenizer, dataset_cfg: dict, inference_cfg: dict):
+    """Run a sample inference using the first entry from the training dataset."""
     FastVisionModel.for_inference(model)
 
-    dataset = load_dataset(dataset_cfg["name"], split=dataset_cfg["split"])
-    image = dataset[0]["image"]
-    instruction = dataset_cfg["instruction"]
+    dataset_root = dataset_cfg["dataset_root"]
+    with open(dataset_cfg["path"]) as f:
+        raw_data = json.load(f)
+
+    # Extract the first sample's image and prompt
+    first_entry = raw_data[0]["messages"]
+    image_ref = None
+    instruction = None
+    for item in first_entry[0]["content"]:
+        if item["type"] == "image":
+            image_ref = item["image"]
+        elif item["type"] == "text":
+            instruction = item["text"]
+
+    abs_path = resolve_image_path(image_ref, dataset_root)
+    image = Image.open(abs_path).convert("RGB")
 
     messages = [
         {

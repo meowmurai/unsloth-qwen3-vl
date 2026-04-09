@@ -1,17 +1,17 @@
 # Qwen3-VL Fine-Tuning with Unsloth
 
-Fine-tune Qwen3-VL 8B vision model using Unsloth with QLoRA (4-bit) adapters. Trains the model on image-to-LaTeX OCR using the Unsloth LaTeX_OCR dataset.
+Fine-tune Qwen3-VL 8B vision model using Unsloth with QLoRA (4-bit) adapters for body defect detection in AI-generated images.
 
 ## Prerequisites
 
 - Python 3.10+
-- NVIDIA GPU with CUDA support (16GB+ VRAM recommended, e.g. T4 or better)
+- NVIDIA GPU with CUDA support (24GB+ VRAM recommended, 48GB comfortable)
 - CUDA toolkit installed
+- Training dataset at `/paperclip/defect_training_dataset/`
 
-## Step 1: Clone and Set Up Environment
+## Step 1: Set Up Environment
 
 ```bash
-git clone <this-repo-url>
 cd unsloth-qwen-fine-tune
 
 python -m venv venv
@@ -20,13 +20,28 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-## Step 2: Review the Training Config
+## Step 2: Verify Dataset
 
-The default config is at `configs/sft_qwen3_vl_8b.yaml`. Key settings:
+The training dataset should be at `/paperclip/defect_training_dataset/` with this structure:
+
+```
+/paperclip/defect_training_dataset/
+├── share_binary_unsloth.json    # 3,627 samples in Unsloth format
+├── images/                       # Image files referenced by the JSON
+│   ├── image_0001.jpg
+│   └── ...
+```
+
+The dataset contains binary defect classification (YES/NO) for body defects like distorted limbs, bad hands/feet, extra/missing parts, etc.
+
+## Step 3: Review the Training Config
+
+The config is at `configs/sft_qwen3_vl_8b.yaml`. Key settings:
 
 | Parameter | Default | Description |
 |---|---|---|
 | Model | `unsloth/Qwen3-VL-8B-Instruct-unsloth-bnb-4bit` | 4-bit quantized Qwen3-VL 8B |
+| Dataset | `/paperclip/defect_training_dataset/share_binary_unsloth.json` | Local JSON in Unsloth format |
 | LoRA rank (r) | 16 | Higher = more capacity, risk of overfitting |
 | Learning rate | 2e-4 | AdamW 8-bit optimizer |
 | Batch size | 2 | Per-device batch size |
@@ -36,7 +51,7 @@ The default config is at `configs/sft_qwen3_vl_8b.yaml`. Key settings:
 
 Edit the YAML to change any parameter before training.
 
-## Step 3: Train the Model
+## Step 4: Train the Model
 
 ```bash
 python train.py
@@ -51,14 +66,15 @@ python train.py --config configs/sft_qwen3_vl_8b.yaml
 This will:
 1. Download the Qwen3-VL 8B model (4-bit quantized)
 2. Apply LoRA adapters to both vision and language layers
-3. Download and prepare the LaTeX OCR dataset
-4. Run SFT training
-5. Save LoRA adapters to `qwen_lora/`
-6. Run a sample inference to verify the fine-tune
+3. Load the local defect detection dataset (3,627 labeled images)
+4. Resolve `file://images/...` references to absolute paths and load images
+5. Run SFT training
+6. Save LoRA adapters to `qwen_lora/`
+7. Run a sample inference to verify the fine-tune
 
 Training output and checkpoints are saved to `outputs/`.
 
-## Step 4: Run Inference
+## Step 5: Run Inference
 
 After training, run inference on any image:
 
@@ -66,10 +82,12 @@ After training, run inference on any image:
 python inference.py --image path/to/image.png
 ```
 
-With a custom prompt:
+For defect detection with the trained model:
 
 ```bash
-python inference.py --image path/to/image.png --prompt "Describe this image in detail"
+python inference.py \
+    --image path/to/image.png \
+    --prompt "Does this image contain body horror defects such as distorted limbs, extra or missing body parts, backwards joints, merged or fused body parts, bad hands, bad feet, or unnatural body proportions? Answer YES or NO."
 ```
 
 ### Inference Options
@@ -84,9 +102,9 @@ python inference.py --image path/to/image.png --prompt "Describe this image in d
 --no-4bit        Load model in 16-bit instead of 4-bit
 ```
 
-## Step 5: Export the Model (Optional)
+## Step 6: Export the Model (Optional)
 
-To export to GGUF for use with llama.cpp or Ollama, add the following to your training script or run interactively:
+To export to GGUF for use with llama.cpp or Ollama, run interactively:
 
 ```python
 # Save to q8_0 GGUF
@@ -108,7 +126,7 @@ tokenizer.push_to_hub("your-username/qwen3-vl-finetune", token="YOUR_HF_TOKEN")
 ```
 .
 ├── configs/
-│   └── sft_qwen3_vl_8b.yaml   # Training hyperparameters
+│   └── sft_qwen3_vl_8b.yaml   # Training hyperparameters + dataset path
 ├── train.py                     # Main training script
 ├── inference.py                 # Standalone inference script
 ├── requirements.txt             # Python dependencies
@@ -117,19 +135,43 @@ tokenizer.push_to_hub("your-username/qwen3-vl-finetune", token="YOUR_HF_TOKEN")
 
 ## Using a Custom Dataset
 
-Edit `configs/sft_qwen3_vl_8b.yaml` and change the dataset section:
+The training script expects a local JSON file in Unsloth conversation format:
+
+```json
+[
+  {
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {"type": "image", "image": "file://images/example.jpg"},
+          {"type": "text", "text": "Your prompt here"}
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {"type": "text", "text": "Expected answer"}
+        ]
+      }
+    ]
+  }
+]
+```
+
+Update the config dataset section:
 
 ```yaml
 dataset:
-  name: "your-org/your-dataset"
-  split: "train"
-  instruction: "Your task instruction here"
+  path: "/path/to/your/dataset.json"
+  dataset_root: "/path/to/your/dataset_folder"
 ```
 
-The dataset must have `image` and `text` columns. For multi-image training, modify `train.py` to use list comprehension instead of `dataset.map()` (already the default).
+Image paths in the JSON (`file://images/...`) are resolved relative to `dataset_root`.
 
 ## Troubleshooting
 
 - **Out of memory**: Reduce `per_device_train_batch_size` to 1 or lower `max_length`
 - **Slow download**: Install `hf_transfer` for faster HuggingFace downloads: `pip install hf_transfer` and set `HF_HUB_ENABLE_HF_TRANSFER=1`
 - **Multi-GPU**: Unsloth supports single-GPU training. For multi-GPU, see [Unsloth docs](https://unsloth.ai/docs)
+- **Image not found**: Ensure `dataset_root` in config points to the directory containing the `images/` folder
