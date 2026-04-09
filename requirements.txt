@@ -4,7 +4,7 @@ unsloth
 # Core ML dependencies
 torch>=2.8.0
 transformers==4.57.1
-trl==0.22.2
+trl==0.26.2
 datasets>=4.3.0
 peft
 accelerate

@@ -1,0 +1,62 @@
+# Qwen3-VL 8B GRPO (Vision Reinforcement Learning) Configuration
+# Based on: https://colab.research.google.com/github/unslothai/notebooks/blob/main/nb/Qwen3_VL_(8B)-Vision-GRPO.ipynb
+
+model:
+  name: "unsloth/Qwen3-VL-8B-Instruct-unsloth-bnb-4bit"
+  max_seq_length: 16384
+  load_in_4bit: true
+  fast_inference: false
+  gpu_memory_utilization: 0.8
+
+lora:
+  r: 16
+  lora_alpha: 16
+  lora_dropout: 0
+  bias: "none"
+  random_state: 3407
+  use_rslora: false
+  finetune_vision_layers: false   # vLLM does not yet support LoRA on vision layers
+  finetune_language_layers: true
+  finetune_attention_modules: true
+  finetune_mlp_modules: true
+
+dataset:
+  # HuggingFace dataset for vision math GRPO
+  name: "AI4Math/MathVista"
+  split: "testmini"
+  image_size: 512  # Resize images to this square dimension
+
+training:
+  learning_rate: 5.0e-6
+  adam_beta1: 0.9
+  adam_beta2: 0.99
+  weight_decay: 0.1
+  warmup_ratio: 0.1
+  lr_scheduler_type: "cosine"
+  optim: "adamw_8bit"
+  logging_steps: 1
+  log_completions: false
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 1
+  num_generations: 2            # Decrease if out of memory
+  max_prompt_length: 1024
+  max_completion_length: 1024
+  num_train_epochs: 0.5         # Set to 1 for a full training run
+  # max_steps: 60
+  save_steps: 60
+  max_grad_norm: 0.1
+  report_to: "none"
+  output_dir: "outputs_grpo"
+
+  # GSPO settings (enhanced GRPO)
+  importance_sampling_level: "sequence"
+  mask_truncated_completions: false
+  loss_type: "dr_grpo"
+
+inference:
+  max_new_tokens: 1024
+  temperature: 1.0
+  min_p: 0.1
+
+save:
+  lora_dir: "grpo_lora"
