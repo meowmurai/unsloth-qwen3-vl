@@ -183,6 +183,7 @@ def run_inference(model, tokenizer, dataset_cfg: dict, inference_cfg: dict):
         input_text,
         add_special_tokens=False,
         return_tensors="pt",
+        truncation=False,
     ).to("cuda")
 
     from transformers import TextStreamer

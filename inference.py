@@ -5,15 +5,20 @@ Load a fine-tuned LoRA adapter and run inference on images.
 
 Usage:
     python inference.py --image path/to/image.png
+    python inference.py --image-dir path/to/images/
     python inference.py --image path/to/image.png --prompt "Describe this image"
     python inference.py --lora-dir qwen_lora --image path/to/image.png
 """
 
 import argparse
+import glob
+import os
 import torch
 from unsloth import FastVisionModel
 from transformers import TextStreamer
 from PIL import Image
+
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
 
 
 def load_model(lora_dir: str, load_in_4bit: bool = True):
@@ -51,6 +56,7 @@ def run_inference(
         input_text,
         add_special_tokens=False,
         return_tensors="pt",
+        truncation=False,
     ).to("cuda")
 
     text_streamer = TextStreamer(tokenizer, skip_prompt=True)
@@ -64,9 +70,20 @@ def run_inference(
     )
 
 
+def collect_images(image_dir: str) -> list[str]:
+    paths = []
+    for entry in sorted(os.listdir(image_dir)):
+        if os.path.splitext(entry)[1].lower() in IMAGE_EXTENSIONS:
+            paths.append(os.path.join(image_dir, entry))
+    return paths
+
+
 def main():
     parser = argparse.ArgumentParser(description="Qwen3-VL Inference")
-    parser.add_argument("--image", type=str, required=True, help="Path to input image")
+    parser.add_argument("--image", type=str, help="Path to a single input image")
+    parser.add_argument(
+        "--image-dir", type=str, help="Path to a directory of images to run inference on"
+    )
     parser.add_argument(
         "--prompt",
         type=str,
@@ -87,19 +104,36 @@ def main():
     )
     args = parser.parse_args()
 
+    if not args.image and not args.image_dir:
+        parser.error("Either --image or --image-dir is required")
+
+    if args.image and args.image_dir:
+        parser.error("Use --image or --image-dir, not both")
+
+    image_paths = []
+    if args.image:
+        image_paths = [args.image]
+    else:
+        image_paths = collect_images(args.image_dir)
+        if not image_paths:
+            print(f"No images found in {args.image_dir}")
+            return
+        print(f"Found {len(image_paths)} images in {args.image_dir}")
+
     print(f"Loading model from {args.lora_dir}...")
     model, tokenizer = load_model(args.lora_dir, load_in_4bit=not args.no_4bit)
 
-    print(f"Running inference on {args.image}...")
-    run_inference(
-        model,
-        tokenizer,
-        args.image,
-        prompt=args.prompt,
-        max_new_tokens=args.max_new_tokens,
-        temperature=args.temperature,
-        min_p=args.min_p,
-    )
+    for i, image_path in enumerate(image_paths):
+        print(f"\n[{i+1}/{len(image_paths)}] Running inference on {image_path}...")
+        run_inference(
+            model,
+            tokenizer,
+            image_path,
+            prompt=args.prompt,
+            max_new_tokens=args.max_new_tokens,
+            temperature=args.temperature,
+            min_p=args.min_p,
+        )
 
 
 if __name__ == "__main__":
