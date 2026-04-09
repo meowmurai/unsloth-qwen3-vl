@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Model outputs and checkpoints
+outputs/
+checkpoints/
+qwen_lora/
+unsloth_finetune/
+qwen_finetune/
+*.gguf
+
+# Data cache
+data/cache/
+.cache/
+
+# HuggingFace cache
+models/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+wandb/
+runs/
+
+# Environment
+.env

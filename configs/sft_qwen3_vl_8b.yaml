@@ -1,0 +1,50 @@
+# Qwen3-VL 8B SFT Fine-tuning Configuration
+# Based on Unsloth's Qwen3-VL notebook
+
+model:
+  name: "unsloth/Qwen3-VL-8B-Instruct-unsloth-bnb-4bit"
+  load_in_4bit: true
+  use_gradient_checkpointing: "unsloth"
+
+lora:
+  r: 16
+  lora_alpha: 16
+  lora_dropout: 0
+  bias: "none"
+  random_state: 3407
+  use_rslora: false
+  finetune_vision_layers: true
+  finetune_language_layers: true
+  finetune_attention_modules: true
+  finetune_mlp_modules: true
+
+dataset:
+  name: "unsloth/LaTeX_OCR"
+  split: "train"
+  instruction: "Write the LaTeX representation for this image."
+
+training:
+  per_device_train_batch_size: 2
+  gradient_accumulation_steps: 4
+  warmup_steps: 5
+  max_steps: 30
+  # num_train_epochs: 1  # Use this instead of max_steps for full runs
+  learning_rate: 2e-4
+  logging_steps: 1
+  optim: "adamw_8bit"
+  weight_decay: 0.001
+  lr_scheduler_type: "linear"
+  seed: 3407
+  output_dir: "outputs"
+  report_to: "none"
+  max_length: 2048
+
+inference:
+  max_new_tokens: 128
+  temperature: 1.5
+  min_p: 0.1
+
+save:
+  lora_dir: "qwen_lora"
+  # gguf_dir: "qwen_finetune"
+  # gguf_quantization: "q8_0"  # Options: q4_k_m, q5_k_m, q8_0, f16
