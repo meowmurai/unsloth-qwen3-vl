@@ -86,7 +86,7 @@ For defect detection with the trained model:
 
 ```bash
 python inference.py \
-    --image path/to/image.png \
+    --image ./bh_10/bh_01.jpg \
     --prompt "Does this image contain body horror defects such as distorted limbs, extra or missing body parts, backwards joints, merged or fused body parts, bad hands, bad feet, or unnatural body proportions? Answer YES or NO."
 ```
 
@@ -102,7 +102,35 @@ python inference.py \
 --no-4bit        Load model in 16-bit instead of 4-bit
 ```
 
-## Step 6: Export the Model (Optional)
+## Step 6: Pack for Deployment
+
+After training, bundle the LoRA adapters and inference code into a portable archive:
+
+```bash
+./pack.sh
+```
+
+This creates `qwen_lora_pack_YYYYMMDD.tar.gz` containing the adapter weights, inference script, config, and a setup helper.
+
+To deploy on another machine:
+
+```bash
+# Copy the archive to the target machine, then:
+tar xzf qwen_lora_pack_*.tar.gz
+cd qwen_lora_pack
+./setup.sh                    # creates venv + installs deps
+python inference.py --image path/to/image.png
+```
+
+Options:
+
+```
+./pack.sh --lora-dir custom_lora    # pack a different adapter directory
+./pack.sh --output my_model.tar.gz  # custom output filename
+./setup.sh --no-venv                # skip venv, install into current env
+```
+
+## Step 7: Export to GGUF (Optional)
 
 To export to GGUF for use with llama.cpp or Ollama, run interactively:
 
@@ -129,6 +157,8 @@ tokenizer.push_to_hub("your-username/qwen3-vl-finetune", token="YOUR_HF_TOKEN")
 │   └── sft_qwen3_vl_8b.yaml   # Training hyperparameters + dataset path
 ├── train.py                     # Main training script
 ├── inference.py                 # Standalone inference script
+├── pack.sh                      # Bundle model + code into portable archive
+├── setup.sh                     # Set up environment on a new machine
 ├── requirements.txt             # Python dependencies
 └── README.md
 ```
