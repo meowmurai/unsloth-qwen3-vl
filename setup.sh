@@ -47,8 +47,9 @@ if $USE_VENV; then
 fi
 
 # Install dependencies
-echo "Installing dependencies..."
-pip install -q --upgrade pip
+echo ""
+echo "=== [1/4] Upgrading pip ==="
+pip install --upgrade pip
 
 # Detect CUDA driver version and choose the right PyTorch index
 CUDA_INDEX=""
@@ -59,6 +60,7 @@ if command -v nvidia-smi &>/dev/null; then
   if [[ -n "$CUDA_VER" ]]; then
     CUDA_MAJOR=$(echo "$CUDA_VER" | cut -d. -f1)
     CUDA_MINOR=$(echo "$CUDA_VER" | cut -d. -f2)
+    echo ""
     echo "Detected CUDA driver version: $CUDA_VER (driver: $DRIVER_CUDA)"
     if [[ "$CUDA_MAJOR" -eq 12 && "$CUDA_MINOR" -lt 4 ]]; then
       echo "CUDA $CUDA_VER detected — installing PyTorch with cu121 support for compatibility."
@@ -75,10 +77,22 @@ fi
 
 # Install PyTorch first with the correct CUDA index, then remaining deps
 if [[ -n "$CUDA_INDEX" ]]; then
-  echo "Installing PyTorch from: $CUDA_INDEX"
-  pip install -q $CUDA_INDEX torch
+  echo ""
+  echo "=== [2/4] Installing PyTorch (from: $CUDA_INDEX) ==="
+  echo "This may take several minutes for the first download (~2GB)..."
+  pip install --progress-bar on $CUDA_INDEX torch
+else
+  echo ""
+  echo "=== [2/4] Installing PyTorch (default index) ==="
+  echo "This may take several minutes for the first download (~2GB)..."
 fi
-pip install -q -r requirements.txt
+
+echo ""
+echo "=== [3/4] Installing remaining dependencies ==="
+pip install --progress-bar on -r requirements.txt
+
+echo ""
+echo "=== [4/4] Verifying installation ==="
 
 # Verify CUDA is working with installed PyTorch
 if command -v nvidia-smi &>/dev/null; then
