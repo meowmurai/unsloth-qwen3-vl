@@ -145,11 +145,6 @@ def main():
     snapshot_dir = save_split_snapshot(raw_data, train_idx, test_idx)
 
     train_dataset, test_dataset = prepare_sft_dataset(cfg)
-
-    # TODO testing
-    train_dataset = train_dataset[:10]
-    test_dataset = test_dataset[:10]
-
     print(f"Train samples: {len(train_dataset)}, Test samples: {len(test_dataset)}")
 
     print("Starting training...")
