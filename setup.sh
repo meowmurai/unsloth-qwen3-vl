@@ -94,7 +94,7 @@ pip install --progress-bar on -r requirements.txt
 echo ""
 echo "=== [4/5] Installing Unsloth (after TRL for compatibility) ==="
 echo "Installing unsloth and unsloth_zoo compatible with installed TRL version..."
-pip install --progress-bar on unsloth
+pip install --force-reinstall --no-cache-dir --no-deps --progress-bar on unsloth
 
 echo ""
 echo "=== [5/5] Verifying installation ==="

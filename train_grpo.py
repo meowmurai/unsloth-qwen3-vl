@@ -12,11 +12,13 @@ Usage:
 import argparse
 import json
 import os
+import random
 import re
 import yaml
 import torch
+from PIL import Image
 from unsloth import FastVisionModel
-from datasets import load_dataset
+from datasets import Dataset
 from trl import GRPOConfig, GRPOTrainer
 
 
@@ -61,67 +63,94 @@ def build_model(cfg: dict):
     return model, tokenizer
 
 
-def _preprocess_dataset(dataset, ds_cfg: dict):
-    """Apply image preprocessing and prompt formatting to a HF dataset split."""
-    image_size = ds_cfg.get("image_size", 512)
+def _resolve_image(image_ref: str, dataset_root: str) -> str:
+    """Resolve a file:// image reference to an absolute path."""
+    if image_ref.startswith("file://"):
+        image_ref = image_ref[len("file://"):]
+    return os.path.join(dataset_root, image_ref)
 
-    def preprocess_image(example):
-        image = example["decoded_image"]
-        image = image.resize((image_size, image_size))
-        if image.mode != "RGB":
-            image = image.convert("RGB")
-        example["decoded_image"] = image
-        return example
 
-    dataset = dataset.map(preprocess_image)
+def _parse_entry(entry: dict, dataset_root: str, image_size: int) -> dict:
+    """Parse an Unsloth conversation entry into GRPO format.
 
-    def make_conversation(example):
-        text_content = (
-            f"{example['question']}. Also first provide your reasoning or working out"
-            f" on how you would go about solving the question between {REASONING_START} and {REASONING_END}"
-            f" and then your final answer between {SOLUTION_START} and (put a single float here) {SOLUTION_END}"
-        )
-        prompt = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "image"},
-                    {"type": "text", "text": text_content},
-                ],
-            },
-        ]
-        return {"prompt": prompt, "image": example["decoded_image"], "answer": example["answer"]}
+    Extracts the user question, image, and assistant answer from the
+    messages format, then builds the GRPO prompt with reasoning instructions.
+    """
+    messages = entry["messages"]
+    user_msg = next(m for m in messages if m["role"] == "user")
+    assistant_msg = next(m for m in messages if m["role"] == "assistant")
 
-    dataset = dataset.map(make_conversation)
+    # Extract question text and image path from user message
+    question_text = ""
+    image = None
+    for item in user_msg["content"]:
+        if item["type"] == "text":
+            question_text = item["text"]
+        elif item["type"] == "image":
+            abs_path = _resolve_image(item["image"], dataset_root)
+            image = Image.open(abs_path).convert("RGB").resize((image_size, image_size))
 
-    dataset = dataset.remove_columns("image")
-    dataset = dataset.rename_column("decoded_image", "image")
+    # Extract answer from assistant message
+    answer_text = ""
+    for item in assistant_msg["content"]:
+        if item["type"] == "text":
+            answer_text = item["text"]
 
-    return dataset
+    # Build GRPO prompt with reasoning instructions
+    text_content = (
+        f"{question_text}. Also first provide your reasoning or working out"
+        f" on how you would go about solving the question between {REASONING_START} and {REASONING_END}"
+        f" and then your final answer between {SOLUTION_START} and {SOLUTION_END}"
+    )
+    prompt = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "image"},
+                {"type": "text", "text": text_content},
+            ],
+        },
+    ]
+
+    return {"prompt": prompt, "image": image, "answer": answer_text}
 
 
 def prepare_dataset(cfg: dict):
-    """Load and prepare the MathVista dataset for GRPO training.
+    """Load a local JSON dataset and prepare it for GRPO training.
+
+    Each entry has {"messages": [{"role": "user", "content": [...]}, ...]}.
+    Image references like file://images/foo.jpg are resolved relative to
+    dataset_root.
 
     Returns (train_dataset, test_dataset). If test_split_ratio is 0,
     test_dataset will be None.
     """
     ds_cfg = cfg["dataset"]
-    dataset = load_dataset(ds_cfg["name"], split=ds_cfg["split"])
-
-    # Keep only numeric answers
-    dataset = dataset.filter(lambda ex: _is_numeric(ex["answer"]))
-
+    dataset_path = ds_cfg["path"]
+    dataset_root = ds_cfg["dataset_root"]
     test_split_ratio = ds_cfg.get("test_split_ratio", 0.1)
     split_seed = ds_cfg.get("split_seed", 42)
+    image_size = ds_cfg.get("image_size", 512)
 
-    if test_split_ratio > 0:
-        splits = dataset.train_test_split(test_size=test_split_ratio, seed=split_seed)
-        train_dataset = _preprocess_dataset(splits["train"], ds_cfg)
-        test_dataset = _preprocess_dataset(splits["test"], ds_cfg)
-    else:
-        train_dataset = _preprocess_dataset(dataset, ds_cfg)
-        test_dataset = None
+    with open(dataset_path) as f:
+        raw_data = json.load(f)
+
+    # Shuffle and split
+    indices = list(range(len(raw_data)))
+    random.Random(split_seed).shuffle(indices)
+    n_test = int(len(raw_data) * test_split_ratio)
+
+    test_indices = set(indices[:n_test])
+    train_entries = [raw_data[i] for i in indices if i not in test_indices]
+    test_entries = [raw_data[i] for i in indices if i in test_indices]
+
+    train_records = [_parse_entry(e, dataset_root, image_size) for e in train_entries]
+    train_dataset = Dataset.from_list(train_records)
+
+    test_dataset = None
+    if test_split_ratio > 0 and test_entries:
+        test_records = [_parse_entry(e, dataset_root, image_size) for e in test_entries]
+        test_dataset = Dataset.from_list(test_records)
 
     return train_dataset, test_dataset
 
