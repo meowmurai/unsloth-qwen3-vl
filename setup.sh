@@ -49,7 +49,52 @@ fi
 # Install dependencies
 echo "Installing dependencies..."
 pip install -q --upgrade pip
+
+# Detect CUDA driver version and choose the right PyTorch index
+CUDA_INDEX=""
+if command -v nvidia-smi &>/dev/null; then
+  DRIVER_CUDA=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1)
+  # Get CUDA version from nvidia-smi header output
+  CUDA_VER=$(nvidia-smi 2>/dev/null | grep -oP 'CUDA Version: \K[0-9]+\.[0-9]+' | head -1)
+  if [[ -n "$CUDA_VER" ]]; then
+    CUDA_MAJOR=$(echo "$CUDA_VER" | cut -d. -f1)
+    CUDA_MINOR=$(echo "$CUDA_VER" | cut -d. -f2)
+    echo "Detected CUDA driver version: $CUDA_VER (driver: $DRIVER_CUDA)"
+    if [[ "$CUDA_MAJOR" -eq 12 && "$CUDA_MINOR" -lt 4 ]]; then
+      echo "CUDA $CUDA_VER detected — installing PyTorch with cu121 support for compatibility."
+      CUDA_INDEX="--index-url https://download.pytorch.org/whl/cu121"
+    elif [[ "$CUDA_MAJOR" -lt 12 ]]; then
+      echo "CUDA $CUDA_VER detected — installing PyTorch with cu118 support for compatibility."
+      CUDA_INDEX="--index-url https://download.pytorch.org/whl/cu118"
+    fi
+  fi
+else
+  echo "Warning: nvidia-smi not found. Installing default (CPU) PyTorch."
+  echo "GPU training requires NVIDIA drivers. See: https://www.nvidia.com/Download/index.aspx"
+fi
+
+# Install PyTorch first with the correct CUDA index, then remaining deps
+if [[ -n "$CUDA_INDEX" ]]; then
+  echo "Installing PyTorch from: $CUDA_INDEX"
+  pip install -q $CUDA_INDEX torch
+fi
 pip install -q -r requirements.txt
+
+# Verify CUDA is working with installed PyTorch
+if command -v nvidia-smi &>/dev/null; then
+  if $PYTHON -c "import torch; assert torch.cuda.is_available(), 'CUDA not available'" 2>/dev/null; then
+    TORCH_CUDA=$($PYTHON -c "import torch; print(torch.version.cuda)")
+    echo "PyTorch CUDA verification passed (CUDA $TORCH_CUDA)"
+  else
+    echo ""
+    echo "ERROR: PyTorch cannot access CUDA. Possible fixes:"
+    echo "  1. Update your NVIDIA driver: https://www.nvidia.com/Download/index.aspx"
+    echo "  2. Install matching PyTorch manually:"
+    echo "     pip install torch --index-url https://download.pytorch.org/whl/cu121"
+    echo "  3. Check driver compatibility: nvidia-smi"
+    echo ""
+  fi
+fi
 
 # Verify LoRA adapter exists
 if [[ -d "qwen_lora" ]]; then

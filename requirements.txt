@@ -2,6 +2,9 @@
 unsloth
 
 # Core ML dependencies
+# Note: If you get "NVIDIA driver too old" errors, install torch separately first:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu121
+# Or use setup.sh which auto-detects your CUDA version.
 torch>=2.8.0
 transformers==4.57.1
 trl==0.26.2

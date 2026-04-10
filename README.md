@@ -283,6 +283,17 @@ Image paths in the JSON (`file://images/...`) are resolved relative to `dataset_
 
 ## Troubleshooting
 
+- **CUDA driver too old / "NVIDIA driver on your system is too old"**: Your NVIDIA driver doesn't support the CUDA version PyTorch was compiled with. Fix options:
+  1. **Use `setup.sh`** — it auto-detects your CUDA driver version and installs a compatible PyTorch build
+  2. **Manual fix** — install PyTorch for your CUDA version:
+     ```bash
+     # For CUDA 12.0-12.3 drivers:
+     pip install torch --index-url https://download.pytorch.org/whl/cu121
+     # For CUDA 11.x drivers:
+     pip install torch --index-url https://download.pytorch.org/whl/cu118
+     ```
+  3. **Update your NVIDIA driver**: Download from https://www.nvidia.com/Download/index.aspx
+  4. Check your CUDA version: `nvidia-smi` (top right shows "CUDA Version: X.Y")
 - **Out of memory**: Reduce `per_device_train_batch_size` to 1 or lower `max_length`
 - **Slow download**: Install `hf_transfer` for faster HuggingFace downloads: `pip install hf_transfer` and set `HF_HUB_ENABLE_HF_TRANSFER=1`
 - **Multi-GPU**: Unsloth supports single-GPU training. For multi-GPU, see [Unsloth docs](https://unsloth.ai/docs)
