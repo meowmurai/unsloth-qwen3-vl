@@ -50,6 +50,9 @@ def evaluate_sft(model, tokenizer, test_dataset: list, inference_cfg: dict):
         user_messages = [{"role": msg["role"], "content": msg["content"]}
                          for msg in messages if msg["role"] == "user"]
 
+        # TODO: testing
+        user_messages[0]['content']['text'] = "Does this image contain body horror defects such as distorted limbs, extra or missing body parts, backwards joints, merged or fused body parts, bad hands, bad feet, or unnatural body proportions? Answer YES/NO and reason why you choose that."
+
         input_text = tokenizer.apply_chat_template(
             user_messages, add_generation_prompt=True
         )
