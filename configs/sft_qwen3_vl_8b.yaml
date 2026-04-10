@@ -21,8 +21,8 @@ lora:
 dataset:
   # Local JSON file in Unsloth conversation format (list of {"messages": [...]})
   # Images referenced as file://images/... relative to dataset_root
-  path: "/paperclip/defect_training_dataset/share_binary_unsloth.json"
-  dataset_root: "/paperclip/defect_training_dataset"
+  path: "/workspace/dataset/share_binary_unsloth.json"
+  dataset_root: "/workspace/dataset"
 
 training:
   per_device_train_batch_size: 2
