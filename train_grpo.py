@@ -10,6 +10,8 @@ Usage:
 """
 
 import argparse
+import json
+import os
 import re
 import yaml
 import torch
@@ -59,17 +61,10 @@ def build_model(cfg: dict):
     return model, tokenizer
 
 
-def prepare_dataset(cfg: dict):
-    """Load and prepare the MathVista dataset for GRPO training."""
-    ds_cfg = cfg["dataset"]
-    dataset = load_dataset(ds_cfg["name"], split=ds_cfg["split"])
-
-    # Keep only numeric answers
-    dataset = dataset.filter(lambda ex: _is_numeric(ex["answer"]))
-
+def _preprocess_dataset(dataset, ds_cfg: dict):
+    """Apply image preprocessing and prompt formatting to a HF dataset split."""
     image_size = ds_cfg.get("image_size", 512)
 
-    # Resize and convert images
     def preprocess_image(example):
         image = example["decoded_image"]
         image = image.resize((image_size, image_size))
@@ -80,7 +75,6 @@ def prepare_dataset(cfg: dict):
 
     dataset = dataset.map(preprocess_image)
 
-    # Build conversational prompts
     def make_conversation(example):
         text_content = (
             f"{example['question']}. Also first provide your reasoning or working out"
@@ -100,11 +94,36 @@ def prepare_dataset(cfg: dict):
 
     dataset = dataset.map(make_conversation)
 
-    # Fix column naming: remove original 'image', rename 'decoded_image' -> 'image'
     dataset = dataset.remove_columns("image")
     dataset = dataset.rename_column("decoded_image", "image")
 
     return dataset
+
+
+def prepare_dataset(cfg: dict):
+    """Load and prepare the MathVista dataset for GRPO training.
+
+    Returns (train_dataset, test_dataset). If test_split_ratio is 0,
+    test_dataset will be None.
+    """
+    ds_cfg = cfg["dataset"]
+    dataset = load_dataset(ds_cfg["name"], split=ds_cfg["split"])
+
+    # Keep only numeric answers
+    dataset = dataset.filter(lambda ex: _is_numeric(ex["answer"]))
+
+    test_split_ratio = ds_cfg.get("test_split_ratio", 0.1)
+    split_seed = ds_cfg.get("split_seed", 42)
+
+    if test_split_ratio > 0:
+        splits = dataset.train_test_split(test_size=test_split_ratio, seed=split_seed)
+        train_dataset = _preprocess_dataset(splits["train"], ds_cfg)
+        test_dataset = _preprocess_dataset(splits["test"], ds_cfg)
+    else:
+        train_dataset = _preprocess_dataset(dataset, ds_cfg)
+        test_dataset = None
+
+    return train_dataset, test_dataset
 
 
 def _is_numeric(value: str) -> bool:
@@ -231,6 +250,124 @@ def save_model(model, tokenizer, cfg: dict):
     print(f"LoRA adapters saved to {lora_dir}/")
 
 
+def evaluate(model, tokenizer, test_dataset, inference_cfg: dict):
+    """Run evaluation on the test set and print metrics.
+
+    Generates responses for each test sample, extracts the numeric answer from
+    <SOLUTION> tags, and compares against the ground truth.
+    Reports exact-match accuracy, numeric-close accuracy (within 1% tolerance),
+    and formatting compliance rate.
+    """
+    if test_dataset is None or len(test_dataset) == 0:
+        print("No test samples — skipping evaluation.")
+        return {}
+
+    FastVisionModel.for_inference(model)
+
+    answer_pattern = f"{SOLUTION_START}(.*?){SOLUTION_END}"
+
+    exact_matches = 0
+    close_matches = 0
+    format_correct = 0
+    total = len(test_dataset)
+    results = []
+
+    print(f"\nEvaluating on {total} test samples...")
+    for i in range(total):
+        image = test_dataset[i]["image"]
+        prompt = test_dataset[i]["prompt"]
+        expected = test_dataset[i]["answer"]
+
+        inputs = tokenizer(
+            image,
+            prompt,
+            add_special_tokens=False,
+            return_tensors="pt",
+        ).to("cuda")
+
+        with torch.no_grad():
+            output_ids = model.generate(
+                **inputs,
+                max_new_tokens=inference_cfg["max_new_tokens"],
+                use_cache=True,
+                temperature=1.0,
+                do_sample=False,
+            )
+
+        prompt_len = inputs["input_ids"].shape[1]
+        generated = tokenizer.decode(output_ids[0][prompt_len:], skip_special_tokens=True).strip()
+
+        # Check formatting
+        has_reasoning = len(re.findall(f"{REASONING_START}(.*?){REASONING_END}", generated, re.DOTALL)) == 1
+        answer_matches = re.findall(answer_pattern, generated, re.DOTALL)
+        has_answer = len(answer_matches) == 1
+        if has_reasoning and has_answer:
+            format_correct += 1
+
+        # Check correctness
+        extracted = answer_matches[0].replace("\n", "").strip() if has_answer else ""
+        is_exact = extracted == expected
+
+        is_close = False
+        if _is_numeric(extracted) and _is_numeric(expected):
+            pred_val = float(extracted)
+            exp_val = float(expected)
+            if exp_val != 0:
+                is_close = abs(pred_val - exp_val) / abs(exp_val) <= 0.01
+            else:
+                is_close = abs(pred_val) <= 0.01
+
+        if is_exact:
+            exact_matches += 1
+        if is_exact or is_close:
+            close_matches += 1
+
+        results.append({
+            "index": i,
+            "expected": expected,
+            "extracted": extracted,
+            "exact_match": is_exact,
+            "close_match": is_exact or is_close,
+            "format_ok": has_reasoning and has_answer,
+        })
+
+        if (i + 1) % 10 == 0 or (i + 1) == total:
+            print(f"  [{i + 1}/{total}] evaluated")
+
+    exact_acc = exact_matches / total
+    close_acc = close_matches / total
+    format_rate = format_correct / total
+
+    print("\n" + "=" * 60)
+    print("EVALUATION REPORT")
+    print("=" * 60)
+    print(f"Test samples:          {total}")
+    print(f"Exact-match accuracy:  {exact_acc:.4f} ({exact_matches}/{total})")
+    print(f"Close-match accuracy:  {close_acc:.4f} ({close_matches}/{total})  (within 1% tolerance)")
+    print(f"Format compliance:     {format_rate:.4f} ({format_correct}/{total})")
+    print("=" * 60)
+
+    # Show some misses
+    misses = [r for r in results if not r["exact_match"]]
+    if misses:
+        print(f"\nIncorrect predictions ({len(misses)}):")
+        for r in misses[:20]:
+            print(f"  Sample {r['index']}: predicted='{r['extracted']}', expected='{r['expected']}', format_ok={r['format_ok']}")
+        if len(misses) > 20:
+            print(f"  ... and {len(misses) - 20} more")
+
+    metrics = {
+        "exact_match_accuracy": exact_acc,
+        "close_match_accuracy": close_acc,
+        "format_compliance": format_rate,
+        "total_test_samples": total,
+        "exact_matches": exact_matches,
+        "close_matches": close_matches,
+        "format_correct": format_correct,
+    }
+    return metrics
+
+
 def run_inference(model, tokenizer, dataset, cfg: dict, sample_idx: int = 0):
     """Run a sample inference on a dataset entry."""
     FastVisionModel.for_inference(model)
@@ -284,22 +421,33 @@ def main():
     model, tokenizer = build_model(cfg)
 
     print("Preparing dataset...")
-    dataset = prepare_dataset(cfg)
-    print(f"Dataset size: {len(dataset)} samples (numeric answers only)")
+    train_dataset, test_dataset = prepare_dataset(cfg)
+    test_count = len(test_dataset) if test_dataset is not None else 0
+    print(f"Train samples: {len(train_dataset)}, Test samples: {test_count} (numeric answers only)")
 
     if args.inference_only:
         print("Running inference...")
-        run_inference(model, tokenizer, dataset, cfg, sample_idx=args.sample_idx)
+        run_inference(model, tokenizer, train_dataset, cfg, sample_idx=args.sample_idx)
         return
 
     print("Starting GRPO training...")
-    train(model, tokenizer, dataset, cfg)
+    train(model, tokenizer, train_dataset, cfg)
 
     print("Saving model...")
     save_model(model, tokenizer, cfg)
 
+    print("Running test set evaluation...")
+    metrics = evaluate(model, tokenizer, test_dataset, cfg["inference"])
+
+    if metrics:
+        metrics_path = os.path.join(cfg["training"]["output_dir"], "eval_metrics.json")
+        os.makedirs(cfg["training"]["output_dir"], exist_ok=True)
+        with open(metrics_path, "w") as f:
+            json.dump(metrics, f, indent=2)
+        print(f"Metrics saved to {metrics_path}")
+
     print("Running post-training inference...")
-    run_inference(model, tokenizer, dataset, cfg, sample_idx=args.sample_idx)
+    run_inference(model, tokenizer, train_dataset, cfg, sample_idx=args.sample_idx)
 
     print("Done.")
 

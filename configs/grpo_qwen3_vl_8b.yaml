@@ -23,6 +23,8 @@ lora:
 dataset:
   path: "/workspace/dataset/share_binary_unsloth.json"
   dataset_root: "/workspace/dataset"
+  test_split_ratio: 0.1   # Hold out 10% of data for test evaluation
+  split_seed: 42           # Seed for reproducible train/test split
 
 training:
   learning_rate: 5.0e-6
