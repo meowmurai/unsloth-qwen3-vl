@@ -102,6 +102,85 @@ python inference.py \
 --no-4bit        Load model in 16-bit instead of 4-bit
 ```
 
+## GRPO Training (Vision Reinforcement Learning)
+
+GRPO (Group Relative Policy Optimization) trains the model using reward functions instead of supervised labels. This teaches the model to reason step-by-step about visual math problems using the MathVista dataset.
+
+### GRPO Step 1: Review the GRPO Config
+
+The config is at `configs/grpo_qwen3_vl_8b.yaml`. Key differences from SFT:
+
+| Parameter | Default | Description |
+|---|---|---|
+| Model | `unsloth/Qwen3-VL-8B-Instruct-unsloth-bnb-4bit` | Same base model |
+| Dataset | `AI4Math/MathVista` (testmini split) | HuggingFace dataset, auto-downloaded |
+| Learning rate | 5e-6 | Lower than SFT for RL stability |
+| Num generations | 2 | Samples per prompt for reward comparison (lower = less VRAM) |
+| Max prompt length | 1024 | Truncation limit for prompts |
+| Max completion length | 1024 | Max tokens per generated response |
+| Loss type | `dr_grpo` | DR-GRPO loss (enables GSPO) |
+| Vision LoRA | disabled | vLLM does not yet support LoRA on vision layers for GRPO |
+
+### GRPO Step 2: Train with GRPO
+
+```bash
+python train_grpo.py
+```
+
+Or with a custom config:
+
+```bash
+python train_grpo.py --config configs/grpo_qwen3_vl_8b.yaml
+```
+
+This will:
+1. Download the Qwen3-VL 8B model (4-bit quantized)
+2. Apply LoRA adapters to language layers only
+3. Download and filter MathVista dataset (numeric answers only)
+4. Resize images to 512x512 and convert to RGB
+5. Run GRPO training with two reward functions:
+   - **Formatting reward**: checks for correct `<REASONING>` and `<SOLUTION>` delimiters
+   - **Correctness reward**: checks if the extracted answer matches the ground truth
+6. Save LoRA adapters to `grpo_lora/`
+7. Run a sample inference to verify
+
+Training output and checkpoints are saved to `outputs_grpo/`.
+
+**Note**: GRPO takes longer to converge than SFT. Expect ~100-200 steps before reward improves. The `addCriterion` gibberish in early outputs is a known Qwen VL quirk and is penalized by the formatting reward.
+
+### GRPO Step 3: Run GRPO Inference
+
+After training, run inference with the GRPO-trained model:
+
+```bash
+python inference_grpo.py --image path/to/image.png --question "What is the value of x?"
+```
+
+The script automatically wraps your question with the `<REASONING>`/`<SOLUTION>` prompt format used during training.
+
+#### GRPO Inference Options
+
+```
+--image          Path to input image (required, or use --image-dir)
+--image-dir      Path to a directory of images
+--question       Question to ask about the image (delimiters added automatically)
+--lora-dir       Path to GRPO LoRA adapter directory (default: grpo_lora)
+--max-new-tokens Maximum tokens to generate (default: 1024)
+--temperature    Sampling temperature (default: 1.0)
+--min-p          Min-p sampling threshold (default: 0.1)
+--no-4bit        Load model in 16-bit instead of 4-bit
+```
+
+### GRPO Step 4: Inference-Only Mode
+
+To skip training and test an existing GRPO adapter:
+
+```bash
+python train_grpo.py --inference-only --sample-idx 100
+```
+
+This loads the model and dataset, then runs inference on the specified sample index without training.
+
 ## Step 6: Pack for Deployment
 
 After training, bundle the LoRA adapters and inference code into a portable archive:
@@ -154,9 +233,12 @@ tokenizer.push_to_hub("your-username/qwen3-vl-finetune", token="YOUR_HF_TOKEN")
 ```
 .
 ├── configs/
-│   └── sft_qwen3_vl_8b.yaml   # Training hyperparameters + dataset path
-├── train.py                     # Main training script
-├── inference.py                 # Standalone inference script
+│   ├── sft_qwen3_vl_8b.yaml    # SFT training hyperparameters + dataset path
+│   └── grpo_qwen3_vl_8b.yaml   # GRPO/GSPO training config
+├── train.py                     # SFT training script
+├── train_grpo.py                # GRPO (vision RL) training script
+├── inference.py                 # SFT inference script
+├── inference_grpo.py            # GRPO inference with reasoning/solution format
 ├── pack.sh                      # Bundle model + code into portable archive
 ├── setup.sh                     # Set up environment on a new machine
 ├── requirements.txt             # Python dependencies
