@@ -1,0 +1,20 @@
+import torch
+
+
+def log_gpu_stats():
+    """Print GPU info and return starting memory reservation."""
+    gpu_stats = torch.cuda.get_device_properties(0)
+    start_gpu_memory = round(torch.cuda.max_memory_reserved() / 1024 / 1024 / 1024, 3)
+    max_memory = round(gpu_stats.total_memory / 1024 / 1024 / 1024, 3)
+    print(f"GPU = {gpu_stats.name}. Max memory = {max_memory} GB.")
+    print(f"{start_gpu_memory} GB of memory reserved.")
+    return start_gpu_memory
+
+
+def log_training_stats(trainer_stats, start_gpu_memory: float):
+    """Print post-training memory and timing stats."""
+    used_memory = round(torch.cuda.max_memory_reserved() / 1024 / 1024 / 1024, 3)
+    used_memory_for_lora = round(used_memory - start_gpu_memory, 3)
+    print(f"{trainer_stats.metrics['train_runtime']:.1f}s training time.")
+    print(f"Peak reserved memory = {used_memory} GB.")
+    print(f"Peak reserved memory for training = {used_memory_for_lora} GB.")

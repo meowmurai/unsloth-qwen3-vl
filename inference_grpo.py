@@ -12,34 +12,13 @@ Usage:
 """
 
 import argparse
-import os
-import torch
-from unsloth import FastVisionModel
+
 from transformers import TextStreamer
 from PIL import Image
 
-IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
-
-# Must match the delimiters used during GRPO training
-REASONING_START = "<REASONING>"
-REASONING_END = "</REASONING>"
-SOLUTION_START = "<SOLUTION>"
-SOLUTION_END = "</SOLUTION>"
-
-DEFAULT_QUESTION = (
-    "What is shown in this image? Also first provide your reasoning or working out"
-    f" on how you would go about solving the question between {REASONING_START} and {REASONING_END}"
-    f" and then your final answer between {SOLUTION_START} and (put a single float here) {SOLUTION_END}"
-)
-
-
-def load_model(lora_dir: str, load_in_4bit: bool = True):
-    model, tokenizer = FastVisionModel.from_pretrained(
-        model_name=lora_dir,
-        load_in_4bit=load_in_4bit,
-    )
-    FastVisionModel.for_inference(model)
-    return model, tokenizer
+from core.constants import REASONING_START, REASONING_END, SOLUTION_START, SOLUTION_END
+from core.model import load_inference_model
+from core.inference_utils import collect_images
 
 
 def build_prompt(question: str) -> list[dict]:
@@ -92,14 +71,6 @@ def run_inference(
     )
 
 
-def collect_images(image_dir: str) -> list[str]:
-    paths = []
-    for entry in sorted(os.listdir(image_dir)):
-        if os.path.splitext(entry)[1].lower() in IMAGE_EXTENSIONS:
-            paths.append(os.path.join(image_dir, entry))
-    return paths
-
-
 def main():
     parser = argparse.ArgumentParser(description="Qwen3-VL GRPO Inference")
     parser.add_argument("--image", type=str, help="Path to a single input image")
@@ -143,7 +114,7 @@ def main():
         print(f"Found {len(image_paths)} images in {args.image_dir}")
 
     print(f"Loading model from {args.lora_dir}...")
-    model, tokenizer = load_model(args.lora_dir, load_in_4bit=not args.no_4bit)
+    model, tokenizer = load_inference_model(args.lora_dir, load_in_4bit=not args.no_4bit)
 
     for i, image_path in enumerate(image_paths):
         print(f"\n[{i+1}/{len(image_paths)}] Running inference on {image_path}...")

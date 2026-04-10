@@ -1,0 +1,6 @@
+"""GRPO structured output delimiters."""
+
+REASONING_START = "<REASONING>"
+REASONING_END = "</REASONING>"
+SOLUTION_START = "<SOLUTION>"
+SOLUTION_END = "</SOLUTION>"
