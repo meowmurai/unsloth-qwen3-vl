@@ -5,7 +5,7 @@ Load a fine-tuned LoRA adapter and run inference on images.
 
 Usage:
     python inference.py --image path/to/image.png
-    python inference.py --image-dir path/to/images/
+    python inference.py --image-dir path/to/images/ --max-images 10
     python inference.py --image path/to/image.png --prompt "Describe this image"
     python inference.py --lora-dir qwen_lora --image path/to/image.png
 """
@@ -15,8 +15,17 @@ import argparse
 from transformers import TextStreamer
 from PIL import Image
 
+from core.constants import REASONING_START, REASONING_END, SOLUTION_START, SOLUTION_END
 from core.model import load_inference_model
 from core.inference_utils import collect_images
+
+
+def build_prompt(instruction: str) -> str:
+    """Wrap an instruction to request reasoning before the final answer."""
+    return (
+        f"{instruction} First explain your reasoning between {REASONING_START} and {REASONING_END},"
+        f" then give your final answer between {SOLUTION_START} and {SOLUTION_END}."
+    )
 
 
 def run_inference(
@@ -24,18 +33,19 @@ def run_inference(
     tokenizer,
     image_path: str,
     prompt: str = "Write the LaTeX representation for this image.",
-    max_new_tokens: int = 128,
+    max_new_tokens: int = 256,
     temperature: float = 1.5,
     min_p: float = 0.1,
 ):
-    image = Image.open(image_path)
+    image = Image.open(image_path).convert("RGB")
 
+    full_prompt = build_prompt(prompt)
     messages = [
         {
             "role": "user",
             "content": [
                 {"type": "image"},
-                {"type": "text", "text": prompt},
+                {"type": "text", "text": full_prompt},
             ],
         }
     ]
@@ -77,9 +87,15 @@ def main():
         default="qwen_lora",
         help="Path to LoRA adapter directory",
     )
-    parser.add_argument("--max-new-tokens", type=int, default=128)
+    parser.add_argument("--max-new-tokens", type=int, default=256)
     parser.add_argument("--temperature", type=float, default=1.5)
     parser.add_argument("--min-p", type=float, default=0.1)
+    parser.add_argument(
+        "--max-images",
+        type=int,
+        default=None,
+        help="Maximum number of images to process from --image-dir",
+    )
     parser.add_argument(
         "--no-4bit", action="store_true", help="Load in 16bit instead of 4bit"
     )
@@ -100,6 +116,9 @@ def main():
             print(f"No images found in {args.image_dir}")
             return
         print(f"Found {len(image_paths)} images in {args.image_dir}")
+        if args.max_images is not None:
+            image_paths = image_paths[: args.max_images]
+            print(f"Limiting to first {args.max_images} images")
 
     print(f"Loading model from {args.lora_dir}...")
     model, tokenizer = load_inference_model(args.lora_dir, load_in_4bit=not args.no_4bit)
