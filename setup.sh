@@ -48,7 +48,7 @@ fi
 
 # Install dependencies
 echo ""
-echo "=== [1/4] Upgrading pip ==="
+echo "=== [1/5] Upgrading pip ==="
 pip install --upgrade pip
 
 # Detect CUDA driver version and choose the right PyTorch index
@@ -78,21 +78,26 @@ fi
 # Install PyTorch first with the correct CUDA index, then remaining deps
 if [[ -n "$CUDA_INDEX" ]]; then
   echo ""
-  echo "=== [2/4] Installing PyTorch (from: $CUDA_INDEX) ==="
+  echo "=== [2/5] Installing PyTorch (from: $CUDA_INDEX) ==="
   echo "This may take several minutes for the first download (~2GB)..."
   pip install --progress-bar on $CUDA_INDEX torch
 else
   echo ""
-  echo "=== [2/4] Installing PyTorch (default index) ==="
+  echo "=== [2/5] Installing PyTorch (default index) ==="
   echo "This may take several minutes for the first download (~2GB)..."
 fi
 
 echo ""
-echo "=== [3/4] Installing remaining dependencies ==="
+echo "=== [3/5] Installing remaining dependencies ==="
 pip install --progress-bar on -r requirements.txt
 
 echo ""
-echo "=== [4/4] Verifying installation ==="
+echo "=== [4/5] Installing Unsloth (after TRL for compatibility) ==="
+echo "Installing unsloth and unsloth_zoo compatible with installed TRL version..."
+pip install --progress-bar on unsloth
+
+echo ""
+echo "=== [5/5] Verifying installation ==="
 
 # Verify CUDA is working with installed PyTorch
 if command -v nvidia-smi &>/dev/null; then
