@@ -21,9 +21,10 @@ from trl import GRPOConfig, GRPOTrainer
 from core.config import load_config
 from core.constants import REASONING_START, REASONING_END, SOLUTION_START, SOLUTION_END
 from core.model import build_grpo_model, save_model
-from core.dataset import prepare_grpo_dataset
+from core.dataset import load_and_split, prepare_grpo_dataset
 from core.eval import evaluate_grpo
 from core.gpu import log_gpu_stats, log_training_stats
+from core.snapshot import visualize_distribution, save_split_snapshot
 
 
 # --- Reward functions ---
@@ -175,6 +176,10 @@ def main():
     model, tokenizer = build_grpo_model(cfg)
 
     print("Preparing dataset...")
+    raw_data, train_idx, test_idx = load_and_split(cfg)
+    visualize_distribution(raw_data, train_idx, test_idx)
+    snapshot_dir = save_split_snapshot(raw_data, train_idx, test_idx)
+
     train_dataset, test_dataset = prepare_grpo_dataset(cfg)
     test_count = len(test_dataset) if test_dataset is not None else 0
     print(f"Train samples: {len(train_dataset)}, Test samples: {test_count} (numeric answers only)")

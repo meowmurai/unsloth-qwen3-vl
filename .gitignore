@@ -41,5 +41,8 @@ Thumbs.db
 wandb/
 runs/
 
+# Dataset snapshots
+snapshots/
+
 # Environment
 .env

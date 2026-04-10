@@ -45,6 +45,23 @@ def resolve_sft_entry(entry: dict, dataset_root: str) -> dict:
     return {"messages": resolved_messages}
 
 
+def load_and_split(cfg: dict):
+    """Load the raw JSON dataset and compute train/test index split.
+
+    Returns (raw_data, train_idx, test_idx) without resolving images,
+    so callers can inspect or snapshot the split before building datasets.
+    """
+    ds_cfg = cfg["dataset"]
+    test_ratio = ds_cfg.get("test_split_ratio", 0.1)
+    seed = ds_cfg.get("split_seed", 42)
+
+    with open(ds_cfg["path"]) as f:
+        raw_data = json.load(f)
+
+    train_idx, test_idx = _split_indices(len(raw_data), test_ratio, seed)
+    return raw_data, train_idx, test_idx
+
+
 def prepare_sft_dataset(cfg: dict):
     """Load a local JSON dataset and split into train/test for SFT.
 
@@ -53,13 +70,8 @@ def prepare_sft_dataset(cfg: dict):
     """
     ds_cfg = cfg["dataset"]
     dataset_root = ds_cfg["dataset_root"]
-    test_ratio = ds_cfg.get("test_split_ratio", 0.1)
-    seed = ds_cfg.get("split_seed", 42)
 
-    with open(ds_cfg["path"]) as f:
-        raw_data = json.load(f)
-
-    train_idx, test_idx = _split_indices(len(raw_data), test_ratio, seed)
+    raw_data, train_idx, test_idx = load_and_split(cfg)
     train_dataset = [resolve_sft_entry(raw_data[i], dataset_root) for i in train_idx]
     test_dataset = [resolve_sft_entry(raw_data[i], dataset_root) for i in test_idx]
     return train_dataset, test_dataset
@@ -133,13 +145,9 @@ def prepare_grpo_dataset(cfg: dict):
     ds_cfg = cfg["dataset"]
     dataset_root = ds_cfg["dataset_root"]
     test_ratio = ds_cfg.get("test_split_ratio", 0.1)
-    seed = ds_cfg.get("split_seed", 42)
     image_size = ds_cfg.get("image_size", 512)
 
-    with open(ds_cfg["path"]) as f:
-        raw_data = json.load(f)
-
-    train_idx, test_idx = _split_indices(len(raw_data), test_ratio, seed)
+    raw_data, train_idx, test_idx = load_and_split(cfg)
     train_records = [parse_grpo_entry(raw_data[i], dataset_root, image_size) for i in train_idx]
     train_dataset = Dataset.from_list(train_records)
 

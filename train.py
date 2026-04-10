@@ -22,9 +22,10 @@ from PIL import Image
 
 from core.config import load_config
 from core.model import build_sft_model, save_model
-from core.dataset import resolve_image_path, prepare_sft_dataset
+from core.dataset import resolve_image_path, load_and_split, prepare_sft_dataset
 from core.eval import evaluate_sft
 from core.gpu import log_gpu_stats, log_training_stats
+from core.snapshot import visualize_distribution, save_split_snapshot
 
 
 def train(model, tokenizer, dataset, cfg: dict):
@@ -139,6 +140,10 @@ def main():
         return
 
     print("Preparing dataset...")
+    raw_data, train_idx, test_idx = load_and_split(cfg)
+    visualize_distribution(raw_data, train_idx, test_idx)
+    snapshot_dir = save_split_snapshot(raw_data, train_idx, test_idx)
+
     train_dataset, test_dataset = prepare_sft_dataset(cfg)
     print(f"Train samples: {len(train_dataset)}, Test samples: {len(test_dataset)}")
 
