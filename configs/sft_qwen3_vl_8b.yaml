@@ -23,6 +23,8 @@ dataset:
   # Images referenced as file://images/... relative to dataset_root
   path: "/workspace/dataset/share_binary_unsloth.json"
   dataset_root: "/workspace/dataset"
+  test_split_ratio: 0.1   # Hold out 10% of data for test evaluation
+  split_seed: 42           # Seed for reproducible train/test split
 
 training:
   per_device_train_batch_size: 2
