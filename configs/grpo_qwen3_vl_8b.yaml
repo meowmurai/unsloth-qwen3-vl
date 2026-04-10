@@ -21,10 +21,8 @@ lora:
   finetune_mlp_modules: true
 
 dataset:
-  # HuggingFace dataset for vision math GRPO
-  name: "AI4Math/MathVista"
-  split: "testmini"
-  image_size: 512  # Resize images to this square dimension
+  path: "/workspace/dataset/share_binary_unsloth.json"
+  dataset_root: "/workspace/dataset"
 
 training:
   learning_rate: 5.0e-6
